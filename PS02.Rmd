@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 02"
-author: "WRITE YOUR NAMES HERE"
+author: "Abbas Shah, Caleb Brooks, Kiryu Kawahata"
 date: "2017-09-19"
 output:
   html_document:
@@ -11,35 +11,182 @@ output:
     smooth_scroll: false
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4.5)
+ 
 
-# Load packages
+
+##Setting up
+```{r, setup, message=FALSE}
+library(readr)
+library(mosaic)  
 library(tidyverse)
+library(broom)
 
-# Note the relative file path, and not absolute file path:
-# http://www.coffeecup.com/help/articles/absolute-vs-relative-pathslinks/
-train <- read_csv("data/train.csv")
+train <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/train.csv")
+test <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/test.csv")
+macro <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/macro.csv")
+sample_submission <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/sample_submission.csv")
+train<- left_join(train, macro, by="timestamp") #make a 'full' dataset with the additional economic indicators
+
 ```
 
+##Exploratory Data Analysis:
 
-# Exploratory Data Analysis
+First, we do some Exploratory Analysis to see which variables are strongly associated with property price (coded here as 'price_doc').
 
 ```{r}
-
+#glimpse(train)
+favstats(train$price_doc)
 ```
 
-
-# Model Fit
+For the sake of conciseness, we're attaching only two of the plots here which we thought demonstrated either reasonably strong relationships or had interesting patterns.
 
 ```{r}
+ ggplot(data = train, aes(x=full_sq, y=price_doc)) + geom_point() + theme(legend.position="none") + labs(title="", x="total area in square meters", y="sale price")  
+
+ggplot(data = train, aes(x=num_room, y=price_doc)) + geom_point()  + theme(legend.position="none") + labs(title="", x="number of living rooms", y="sale price") 
 
 ```
 
 
-# Create Submission File
+Other variables we thought were interesting and relevant were the distance between the property and public transport and the distance between the property and the kremlin (city center), but neither of them were as strong.
+In the end, after fitting multiple models, we decided to stick with total area in square meters as our sole predictor. because of it's decent association with the property sale price and because, among the models we fit and tested, it had the lowest RMSE as per Kaggle.
+
+##Making a Smaller Dataset:
+
+To make our work easier, we can make a smaller dataset with only a handful of relevant variables that we have identified through intuition and corroboration. These include product type, number of rooms, and total area. 
+
 
 ```{r}
+trainmini <- train[,c(3,9,12,14,88,105,112,292,294,295,305,323)]
+#splom(trainmini)
+```
+
+## Fitting our Models:
+
+As discussed earlier, we are using the total area in square meters of the property as the predictor. 
+
+```{r}
+splines_model <- smooth.spline(x=trainmini$full_sq, y=trainmini$price_doc, df=20)
+splines_model_tidy <- splines_model %>% 
+  broom::augment() 
+plot<- ggplot(splines_model_tidy, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="red")
+plot
+```
+
+That one point at the rightmost end of the plot exerts makes it hard to see the relationship in the rest of the plot. Nor will it presumably add much to our understanding/predictive power. Let's try fitting a model without it. We'll also log the response variable. 
+
+```{r}
+which(trainmini$full_sq>4000)
+trainmini1 <- trainmini[-3528,]
+
+splines_model2 <- smooth.spline(x=trainmini1$full_sq, y=log(trainmini1$price_doc), df = 36.6) #obtained through the builtin cv method
+splines_model_tidy2 <- splines_model2 %>% 
+  broom::augment() 
+plot2 <- ggplot(splines_model_tidy2, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue")
+plot2
+
+sqrt(sum(splines_model_tidy2$.resid ^2))/30470
+```
+
+RMSE train  0.002997109. Note, this is using a logged scale. 
+			
+Let's try predicting on the test data :
+
+```{r}
+t <- predict(splines_model2, test$full_sq)
+t$y2<- exp(t$y) # converting back from log form.
+test$price_doc<-as.integer(t$y2);
+submission <- test[,c(1,292)]
 
 ```
 
+```{r}
+write.csv(submission, "submission.csv")
+```
+
+The RMSE for this is 0.42257 as per Kaggle.
+
+
+
+##Ways to test our predictive strength:
+
+Let's split our training dataset into two equal ones and we can use one to test the model trained on the other. For the sake of this problem set, we won't actually follow this entirely through - rather, we're just experimenting with the idea and making a blueprint.
+
+```{r}
+samplesize <- nrow(trainmini1)/2
+set.seed(10)
+n <- sample(seq_len(nrow(trainmini1)), size=samplesize)
+tx1 <- trainmini1[n,]
+tx2 <- trainmini1[-n,]
+```
+
+```{r}
+ss1 <- smooth.spline(x= tx1$full_sq, y=log(tx1$price_doc), cv=TRUE)
+ss1a <- ss1 %>% 
+  broom::augment() 
+plot5 <- ggplot(ss1a, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="red")
+plot5
+summary(ss1a)
+sqrt(
+sum(ss1a$.resid ^2)/15235) 
+```
+
+```{r}
+t <- predict(ss1, tx2$full_sq)
+t$y2<- exp(t$y)
+t2<-(log(tx2$price_doc) - t$y)^2
+sqrt(sum(t2)/15235)
+```
+
+The RMSE's are similar (and higher than the one computed through the full training set).
+
+
+
+##Alternative Approach:
+
+We wanted to try an alternative approach where we would separate the higher x-value points and fit different models on them.
+
+```{r}
+area <- data.frame(train$price_doc,train$full_sq)
+
+area1 <- area[area$train.full_sq < 250,]
+area2 <- area[area$train.full_sq >= 250,] #separating data into two sections to accound for an apparent disjointedness
+
+splines_model <- smooth.spline(x=area1$train.full_sq, y=area1$train.price_doc, df = 10)
+splines_model_tidy <- splines_model %>% 
+  broom::augment() 
+splines_model2 <- smooth.spline(x=area2$train.full_sq, y=area2$train.price_doc, df = 5)
+splines_model_tidy2 <- splines_model2 %>% 
+  broom::augment() 
+plot <- ggplot(splines_model_tidy, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue")
+plot
+plot2 <- ggplot(splines_model_tidy2, aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="red")
+plot2
+
+testArea <- data.frame(test$full_sq, test$id)
+testArea1 <- testArea[testArea$test.full_sq > 250,]
+testArea2 <- testArea[testArea$test.full_sq <= 250,]
+colnames1 <- c('y'='price_doc','testArea1.test.id'='id')
+colnames2 <- c('y'='price_doc','testArea2.test.id'='id')
+prediction1 <- data.frame(predict(splines_model, testArea1$test.full_sq), testArea1$test.id)[,2:3] %>% 
+  plyr::rename(colnames1)
+prediction2 <- data.frame(predict(splines_model2, testArea2$test.full_sq), testArea2$test.id)[,2:3] %>% 
+  plyr::rename(colnames2)
+predictionAll <- rbind(prediction1, prediction2)
+predictionAll <- data.frame(predictionAll)
+predictionAll <- predictionAll[,c(2,1)]
+predictionAll$price_doc <- as.integer(predictionAll$price_doc)
+write.csv(predictionAll, "predictionPset2.csv")
+```
+
+The RMSE for this is slightly higher at 2.14868 as per Kaggle.
