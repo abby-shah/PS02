@@ -21,10 +21,10 @@ library(mosaic)
 library(tidyverse)
 library(broom)
 
-train <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/train.csv")
-test <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/test.csv")
-macro <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/macro.csv")
-sample_submission <- read_csv("~/Desktop/Amherst Academic/Stat 495/Ps2/data/sample_submission.csv")
+train <- read_csv("data/train.csv")
+test <- read_csv("data/test.csv")
+macro <- read_csv("data/macro.csv")
+sample_submission <- read_csv("data/sample_submission.csv")
 train<- left_join(train, macro, by="timestamp") #make a 'full' dataset with the additional economic indicators
 
 ```
@@ -35,7 +35,8 @@ First, we do some Exploratory Analysis to see which variables are strongly assoc
 
 ```{r}
 #glimpse(train)
-favstats(train$price_doc)
+favstats(train$price_doc);
+ggplot( data = train, aes(x = price_doc)) + geom_density(adjust=0.4) + labs(title="Distribution of Russian Houses' Sale Prices", x="Sale Prices") + theme(legend.position="none") 
 ```
 
 For the sake of conciseness, we're attaching only two of the plots here which we thought demonstrated either reasonably strong relationships or had interesting patterns.
@@ -71,7 +72,7 @@ splines_model_tidy <- splines_model %>%
   broom::augment() 
 plot<- ggplot(splines_model_tidy, aes(x=x)) +
   geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="red")
+  geom_line(aes(y=.fitted), col="red") + labs(title="Predicting Sale Price using Total Area", y="Sale Price", x="Total Area")
 plot
 ```
 
@@ -86,13 +87,13 @@ splines_model_tidy2 <- splines_model2 %>%
   broom::augment() 
 plot2 <- ggplot(splines_model_tidy2, aes(x=x)) +
   geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue")
+  geom_line(aes(y=.fitted), col="blue") + labs(title = "Predicting Sale Price using Total Area", y="Sale Price", x="Total Area")
 plot2
 
 sqrt(sum(splines_model_tidy2$.resid ^2))/30470
 ```
 
-RMSE train  0.002997109. Note, this is using a logged scale. 
+RMSLE train  0.002997109. Note, this is using a logged scale. 
 			
 Let's try predicting on the test data :
 
@@ -108,7 +109,7 @@ submission <- test[,c(1,292)]
 write.csv(submission, "submission.csv")
 ```
 
-The RMSE for this is 0.42257 as per Kaggle.
+The RMSLE for this is 0.42257 as per Kaggle.
 
 
 
@@ -144,7 +145,7 @@ t2<-(log(tx2$price_doc) - t$y)^2
 sqrt(sum(t2)/15235)
 ```
 
-The RMSE's are similar (and higher than the one computed through the full training set).
+The RMSLE's are similar (and higher than the one computed through the full training set).
 
 
 
@@ -166,11 +167,11 @@ splines_model_tidy2 <- splines_model2 %>%
   broom::augment() 
 plot <- ggplot(splines_model_tidy, aes(x=x)) +
   geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue")
+  geom_line(aes(y=.fitted), col="blue") +labs(title = "Predicting Sale Price using Total Area", y="Sale Price", x="Total Area")
 plot
 plot2 <- ggplot(splines_model_tidy2, aes(x=x)) +
   geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="red")
+  geom_line(aes(y=.fitted), col="red") +labs(title = "Predicting Sale Price using Total Area", y="Sale Price", x="Total Area")
 plot2
 
 testArea <- data.frame(test$full_sq, test$id)
@@ -189,4 +190,4 @@ predictionAll$price_doc <- as.integer(predictionAll$price_doc)
 write.csv(predictionAll, "predictionPset2.csv")
 ```
 
-The RMSE for this is slightly higher at 2.14868 as per Kaggle.
+The RMSLE for this is slightly higher at 2.14868 as per Kaggle.
